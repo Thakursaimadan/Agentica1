@@ -11,8 +11,8 @@ app.use(cors());
 app.use(express.json());
 connectCloudinary();
 
-app.use("/users", userRouter);
-app.use("/admin", adminRouter);
+app.use("/api/users", userRouter);
+app.use("/api/admin", adminRouter);
 
 // console.log();
 
