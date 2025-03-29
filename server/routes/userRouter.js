@@ -100,12 +100,11 @@ userRouter.get('/orders/:orderId', async (req, res) => {
       items: itemsRes.rows
     });
   }
-  catch(err)
-  {
+  catch (err) {
     console.log(err);
     res.status(500).json({ message: 'Internal server error' });
   }
-  
+
 });
 
 //route to submit mess change request
@@ -128,7 +127,7 @@ userRouter.post('/request-mess-change', async (req, res) => {
 
 //to get redeemed orders to submit review
 userRouter.get('/redeemed-orders', async (req, res) => {
-  try{
+  try {
     const userId = req.user_id;
     const orderRes = await pool.query(
       `SELECT o.order_id, o.created_at, oi.item_id, si.name, oi.quantity
@@ -138,15 +137,14 @@ userRouter.get('/redeemed-orders', async (req, res) => {
            WHERE o.user_id = $1 AND o.is_redeemed = true`,
       [userId]
     );
-  
+
     res.json(orderRes.rows);
   }
-  catch(err)
-  {
+  catch (err) {
     console.log(err);
     res.status(500).json({ message: 'Internal server error' });
   }
-  
+
 })
 //to get the menu image
 userRouter.get('/menu-image', async (req, res) => {
@@ -156,21 +154,20 @@ userRouter.get('/menu-image', async (req, res) => {
 
 //to submit review
 userRouter.post('/review', async (req, res) => {
-  try{
+  try {
     const userId = req.user_id;
-  const { item_id, rating, content } = req.body;
-  await pool.query(
-    `INSERT INTO reviews (user_id, item_id, rating, content) VALUES ($1, $2, $3, $4)`,
-    [userId, item_id, rating, content]
-  );
-  res.json({ message: 'Review submitted successfully' });
+    const { item_id, rating, content } = req.body;
+    await pool.query(
+      `INSERT INTO reviews (user_id, item_id, rating, content) VALUES ($1, $2, $3, $4)`,
+      [userId, item_id, rating, content]
+    );
+    res.json({ message: 'Review submitted successfully' });
   }
-  catch(err)
-  {
+  catch (err) {
     console.log(err);
     res.status(500).json({ message: 'Internal server error' });
   }
-  
+
 })
 
 //to create order
@@ -194,7 +191,7 @@ userRouter.post('/create-order', async (req, res) => {
       [qrLink, orderId]
     );
 
-    
+
     const orderItemsInsert = items.map(item =>
       pool.query(
         `INSERT INTO order_items (order_id, item_id, quantity) VALUES ($1, $2, $3)`,
@@ -218,7 +215,7 @@ userRouter.post('/checkout', async (req, res) => {
   try {
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ message: 'Order ID is required' });
-    
+
     const { rows: existingPayment } = await pool.query(
       `SELECT payment_status FROM orders WHERE order_id = $1`,
       [order_id]
@@ -227,9 +224,9 @@ userRouter.post('/checkout', async (req, res) => {
     if (existingPayment.length > 0 && existingPayment[0].payment_status === 'paid') {
       return res.json({ message: 'Order already paid' });
     }
-    
-    
-    
+
+
+
     const { rows: orderItems } = await pool.query(
       `SELECT oi.item_id, oi.quantity, t.price 
          FROM order_items oi 
@@ -269,7 +266,7 @@ userRouter.post('/payment-success', async (req, res) => {
     const { session_id } = req.body;
     if (!session_id) return res.status(400).json({ message: 'Session ID is required' });
     const session = await stripe.checkout.sessions.retrieve(session_id);
-    
+
     if (session.payment_status !== 'paid') {
       return res.status(400).json({ message: 'Payment not completed' });
     }
@@ -289,50 +286,49 @@ userRouter.post('/payment-success', async (req, res) => {
 
 userRouter.post('/process-mess-requests', async (req, res) => {
   try {
-    const requests = await pool.query(
-      `SELECT request_id, user_id, requested_mess_id FROM mess_change_requests ORDER BY created_at ASC`
-    );
-
-    if (requests.rowCount === 0) return res.json({ message: 'No requests to process' });
-    let countAtoB = 0, countBtoA = 0;
-    const requestMap = {};
-    for (let req of requests.rows) {
-      requestMap[req.user_id] = req;
-      if (req.requested_mess_id === 2) countAtoB++;
-      else countBtoA++;
-    }
 
     const messStats = await pool.query(`SELECT mess_id, capacity FROM mess`);
-    // let messA = messStats.rows.find(m => m.mess_id === 1);
-    // let messB = messStats.rows.find(m => m.mess_id === 2);
 
-	const userCounts = await pool.query(`
-		SELECT mess_id, COUNT(*) AS current_count 
-		FROM users 
-		GROUP BY mess_id
-	  `);
-	
-	  // Convert data into a usable format
-	  let messA = { mess_id: 1, capacity: 0, current_count: 0 };
-	  let messB = { mess_id: 2, capacity: 0, current_count: 0 };
-	
-	  messStats.rows.forEach(m => {
-		if (m.mess_id === 1) messA.capacity = m.capacity;
-		if (m.mess_id === 2) messB.capacity = m.capacity;
-	  });
-	
+    // Fetch current count of students assigned to each mess
+    const userCounts = await pool.query(`
+    SELECT mess_id, COUNT(*) AS current_count 
+    FROM users 
+    GROUP BY mess_id
+  `);
+
+    // Convert data into a usable format
+    let messA = { mess_id: 1, capacity: 0, current_count: 0 };
+    let messB = { mess_id: 2, capacity: 0, current_count: 0 };
+
+    messStats.rows.forEach(m => {
+      if (m.mess_id === 1) messA.capacity = m.capacity;
+      if (m.mess_id === 2) messB.capacity = m.capacity;
+    });
+
+    userCounts.rows.forEach(u => {
+      if (u.mess_id === 1) messA.current_count = parseInt(u.current_count);
+      if (u.mess_id === 2) messB.current_count = parseInt(u.current_count);
+    });
+
+    const requests = await pool.query(`
+    SELECT request_id, user_id, requested_mess_id 
+    FROM mess_change_requests 
+    ORDER BY created_at ASC
+  `);
+
+    let countAtoB = requests.rows.filter(r => r.requested_mess_id === 2).length;
+    let countBtoA = requests.rows.filter(r => r.requested_mess_id === 1).length;
 
     let swaps = Math.min(countAtoB, countBtoA); 
 
-    // Step 4: Process Swaps First
     let processedUsers = new Set();
+    
     for (let req of requests.rows) {
-      if (swaps === 0) break; // No more swaps possible
+      if (swaps === 0) break;
 
       const { request_id, user_id, requested_mess_id } = req;
 
-      // Find a user going in the opposite direction
-      const oppositeReq = requests.rows.find(r => 
+      const oppositeReq = requests.rows.find(r =>
         r.requested_mess_id !== requested_mess_id && !processedUsers.has(r.user_id)
       );
 
@@ -347,127 +343,35 @@ userRouter.post('/process-mess-requests', async (req, res) => {
         processedUsers.add(user_id);
         processedUsers.add(oppositeReq.user_id);
 
-        swaps--; // Reduce swap count
+        swaps--;
       }
     }
 
-    // Step 5: Process Remaining Requests (if capacity allows)
+    // Step 2: Process Remaining Requests (if capacity allows)
     for (let req of requests.rows) {
-      if (processedUsers.has(req.user_id)) continue; // Skip already swapped users
+      if (processedUsers.has(req.user_id)) continue;
 
       const { request_id, user_id, requested_mess_id } = req;
-      let mess = (requested_mess_id === 1) ? messA : messB;
+      let mess = requested_mess_id === 1 ? messA : messB;
 
       if (mess.current_count < mess.capacity) {
         // Approve request
         await pool.query(`UPDATE users SET mess_id = $1 WHERE user_id = $2`, [requested_mess_id, user_id]);
 
-        // Update mess counts
-        await pool.query(`UPDATE messes SET current_count = current_count + 1 WHERE mess_id = $1`, [requested_mess_id]);
-        await pool.query(`UPDATE messes SET current_count = current_count - 1 WHERE mess_id = (SELECT mess_id FROM users WHERE user_id = $1)`, [user_id]);
-
         // Remove processed request
         await pool.query(`DELETE FROM mess_change_requests WHERE request_id = $1`, [request_id]);
 
-        // Update mess stats
+        // Update current count
         mess.current_count++;
       }
     }
 
     res.json({ message: 'Mess change requests processed with swaps considered' });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-
-
-// const messStats = await pool.query(`SELECT mess_id, capacity FROM messes`);
-
-//   // Fetch current count of students assigned to each mess
-//   const userCounts = await pool.query(`
-//     SELECT mess_id, COUNT(*) AS current_count 
-//     FROM users 
-//     GROUP BY mess_id
-//   `);
-
-//   // Convert data into a usable format
-//   let messA = { mess_id: 1, capacity: 0, current_count: 0 };
-//   let messB = { mess_id: 2, capacity: 0, current_count: 0 };
-
-//   messStats.rows.forEach(m => {
-//     if (m.mess_id === 1) messA.capacity = m.capacity;
-//     if (m.mess_id === 2) messB.capacity = m.capacity;
-//   });
-
-//   userCounts.rows.forEach(u => {
-//     if (u.mess_id === 1) messA.current_count = parseInt(u.current_count);
-//     if (u.mess_id === 2) messB.current_count = parseInt(u.current_count);
-//   });
-
-//   // Fetch mess change requests in FIFO order
-//   const requests = await pool.query(`
-//     SELECT request_id, user_id, requested_mess_id 
-//     FROM mess_change_requests 
-//     ORDER BY request_id ASC
-//   `);
-
-//   let countAtoB = requests.rows.filter(r => r.requested_mess_id === 2).length;
-//   let countBtoA = requests.rows.filter(r => r.requested_mess_id === 1).length;
-
-//   let swaps = Math.min(countAtoB, countBtoA); // Maximum possible direct swaps
-
-//   let processedUsers = new Set();
-  
-//   // Step 1: Process Swaps First
-//   for (let req of requests.rows) {
-//     if (swaps === 0) break;
-
-//     const { request_id, user_id, requested_mess_id } = req;
-
-//     const oppositeReq = requests.rows.find(r =>
-//       r.requested_mess_id !== requested_mess_id && !processedUsers.has(r.user_id)
-//     );
-
-//     if (oppositeReq) {
-//       // Swap users
-//       await pool.query(`UPDATE users SET mess_id = $1 WHERE user_id = $2`, [requested_mess_id, user_id]);
-//       await pool.query(`UPDATE users SET mess_id = $1 WHERE user_id = $2`, [oppositeReq.requested_mess_id, oppositeReq.user_id]);
-
-//       // Remove processed requests
-//       await pool.query(`DELETE FROM mess_change_requests WHERE request_id IN ($1, $2)`, [request_id, oppositeReq.request_id]);
-
-//       processedUsers.add(user_id);
-//       processedUsers.add(oppositeReq.user_id);
-
-//       swaps--; 
-//     }
-//   }
-
-//   // Step 2: Process Remaining Requests (if capacity allows)
-//   for (let req of requests.rows) {
-//     if (processedUsers.has(req.user_id)) continue;
-
-//     const { request_id, user_id, requested_mess_id } = req;
-//     let mess = requested_mess_id === 1 ? messA : messB;
-
-//     if (mess.current_count < mess.capacity) {
-//       // Approve request
-//       await pool.query(`UPDATE users SET mess_id = $1 WHERE user_id = $2`, [requested_mess_id, user_id]);
-
-//       // Remove processed request
-//       await pool.query(`DELETE FROM mess_change_requests WHERE request_id = $1`, [request_id]);
-
-//       // Update current count
-//       mess.current_count++;
-//     }
-//   }
-
-//   res.json({ message: 'Mess change requests processed with swaps considered' });
-
-// } catch (err) {
-//   console.error(err);
-//   res.status(500).json({ message: 'Internal server error' });
-// }
 export default userRouter;
